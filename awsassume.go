@@ -37,42 +37,52 @@ type Profile struct {
 	RoleSessionName string `ini:"role_session_name"`
 }
 
-// A Value is the credentials value for a particular
-// set of credentials
+// A Value is the credentials value for a particular set of credentials
 type Value struct {
 	AccessKeyID     string    `ini:"aws_access_key_id"`
 	SecretAccessKey string    `ini:"aws_secret_access_key"`
 	SessionToken    string    `ini:"aws_session_token"`
 	ExpiresAt       time.Time `ini:"awsassume_expires_at"`
+	Region          string    `ini:"awsassume_region"`
 }
 
-// GetCredentials retrieves a set of credentials for the specified profile.
+// CredentialProvider is used to retrieve credentials from file or STS API
+type CredentialProvider struct {
+	ConfigFile    string
+	CredsFile     string
+	ProfileName   string
+	SourceProfile string
+	Duration      int
+	Region        string
+}
+
+// Retrieve retrieves a set of credentials for the specified profile.
 // This might be credentials stored in the shared credentials file if valid, or
 // retrieved from the STS API
-func GetCredentials(credsPath string, profileName string, profile *Profile, duration int) (*Value, error) {
+func (c CredentialProvider) Retrieve() (*Value, error) {
 	var val = new(Value)
-	val = GetCredentialsFromFile(credsPath, profileName)
+	val = c.CredentialsFromFile()
 	if val != nil {
 		fmt.Println("Using credentials from file")
 		return val, nil
 	}
 	fmt.Println("Retrieving credentials from AWS STS")
-	val, err := AssumeRole(profile, duration)
+	val, err := c.AssumeRole()
 	if err != nil {
 		return nil, fmt.Errorf("Error retrieving credentials: %s", err)
 	}
-	writeCredentials(credsPath, profileName, val)
+	writeCredentials(c.CredsFile, c.ProfileName, val)
 	return val, nil
 }
 
-// GetCredentialsFromFile fetches a set of credentials from an AWS shared credentials file
-func GetCredentialsFromFile(filePath string, profileName string) *Value {
-	credFile, err := loadIniFile(filePath)
+// CredentialsFromFile fetches a set of credentials from an AWS shared credentials file
+func (c CredentialProvider) CredentialsFromFile() *Value {
+	credFile, err := loadIniFile(c.CredsFile)
 	if err != nil {
 		fmt.Println("Failed to open credentials file: ", err)
 		os.Exit(1)
 	}
-	creds, err := credFile.GetSection(profileName)
+	creds, err := credFile.GetSection(c.ProfileName)
 	if err != nil {
 		fmt.Println("Profile not found in shared credential file")
 		return nil
@@ -92,12 +102,27 @@ func GetCredentialsFromFile(filePath string, profileName string) *Value {
 
 // AssumeRole attempts to assume the role of the specified profile
 // and return the temporary credentials
-func AssumeRole(profile *Profile, duration int) (*Value, error) {
+func (c CredentialProvider) AssumeRole() (*Value, error) {
+	profile, err := c.GetProfile()
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	var source string
+
+	if c.SourceProfile != "" {
+		source = c.SourceProfile
+	} else if profile.SourceProfile != "" {
+		source = profile.SourceProfile
+	} else {
+		fmt.Println("Error: No source profile provided")
+		os.Exit(1)
+	}
 	awsSession := session.Must(session.NewSessionWithOptions(session.Options{
-		Profile: profile.SourceProfile,
+		Profile: source,
 	}))
 	creds := stscreds.NewCredentials(awsSession, profile.RoleArn, func(p *stscreds.AssumeRoleProvider) {
-		p.Duration = time.Duration(duration) * time.Minute
+		p.Duration = time.Duration(c.Duration) * time.Minute
 		if profile.MfaSerial != "" {
 			p.SerialNumber = &profile.MfaSerial
 			p.TokenProvider = stscreds.StdinTokenProvider
@@ -113,27 +138,31 @@ func AssumeRole(profile *Profile, duration int) (*Value, error) {
 	if err != nil {
 		return nil, err
 	}
-	val := Value{
-		AccessKeyID:     awsVal.AccessKeyID,
-		SecretAccessKey: awsVal.SecretAccessKey,
-		SessionToken:    awsVal.SessionToken,
-		ExpiresAt:       time.Now().Local().Add(time.Duration(duration) * time.Minute),
+	val := new(Value)
+	val.AccessKeyID = awsVal.AccessKeyID
+	val.SecretAccessKey = awsVal.SecretAccessKey
+	val.SessionToken = awsVal.SessionToken
+	val.ExpiresAt = time.Now().Local().Add(time.Duration(c.Duration) * time.Minute)
+	if c.Region != "" {
+		val.Region = c.Region
+	} else if profile.Region != "" {
+		val.Region = profile.Region
 	}
-	return &val, nil
+	return val, nil
 }
 
 // GetProfile retrieves data about the profile from the AWS CLI config file
-func GetProfile(filePath string, profileName string) (*Profile, error) {
-	cfg, err := loadIniFile(filePath)
+func (c CredentialProvider) GetProfile() (*Profile, error) {
+	cfg, err := loadIniFile(c.ConfigFile)
 	if err != nil {
 		fmt.Println("Failed to open config file: ", err)
 		os.Exit(1)
 	}
 	var sectionName string
-	if profileName == "default" {
-		sectionName = profileName
+	if c.ProfileName == "default" {
+		sectionName = c.ProfileName
 	} else {
-		sectionName = fmt.Sprintf("profile %s", profileName)
+		sectionName = fmt.Sprintf("profile %s", c.ProfileName)
 	}
 	sections := cfg.Sections()
 	profile := new(Profile)
@@ -168,24 +197,4 @@ func writeCredentials(awsCredsPath string, profileName string, val *Value) {
 	if err != nil {
 		fmt.Println("Error writing back credentials: ", err)
 	}
-}
-
-// EnvVars returns a slice containing the current environment variables and the variables
-// to set based on the assumed profile
-func EnvVars(profile *Profile, credentials *Value) []string {
-	envVars := []string{
-		fmt.Sprintf("AWSASSUME=1"),
-		fmt.Sprintf("AWS_ACCESS_KEY_ID=%s", credentials.AccessKeyID),
-		fmt.Sprintf("AWS_SECRET_ACCESS_KEY=%s", credentials.SecretAccessKey),
-		fmt.Sprintf("AWS_SESSION_TOKEN=%s", credentials.SessionToken),
-		fmt.Sprintf("AWSASSUME_EXPIRY=%s", credentials.ExpiresAt),
-	}
-	defaultregion := os.Getenv("AWS_DEFAULT_REGION")
-	if defaultregion != "" {
-		envVars = append(envVars, fmt.Sprintf("AWS_DEFAULT_REGION=%s", defaultregion))
-	} else if profile.Region != "" {
-		envVars = append(envVars, fmt.Sprintf("AWS_DEFAULT_REGION=%s", profile.Region))
-	}
-	envVars = append(os.Environ(), envVars...)
-	return envVars
 }
