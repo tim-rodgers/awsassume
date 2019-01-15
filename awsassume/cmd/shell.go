@@ -21,6 +21,7 @@ import (
 	"os/exec"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"github.com/tim-rodgers/awsassume"
 )
 
@@ -46,23 +47,20 @@ func shell() error {
 	if os.Getenv("AWSASSUME") != "" {
 		return errors.New("In an awsassume shell. Exit this before running further commands")
 	}
-	if os.Getenv("AWS_CONFIG_FILE") != "" {
-		configPath = os.Getenv("AWS_CONFIG_FILE")
-	}
-	if os.Getenv("AWS_SHARED_CREDENTIALS_FILE") != "" {
-		credsPath = os.Getenv("AWS_SHARED_CREDENTIALS_FILE")
-	}
-	profile, err := awsassume.GetProfile(configPath, profileName)
+	configFile := viper.GetString("AWSConfigFile")
+	credsFile := viper.GetString("AWSSharedCredentialsFile")
+	duration := viper.GetInt("DefaultDuration")
+	profile, err := awsassume.GetProfile(configFile, profileNameFlag)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-	val, err := awsassume.GetCredentials(credsPath, profileName, profile, duration)
+	val, err := awsassume.GetCredentials(credsFile, profileNameFlag, profile, duration)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-	cmd := exec.Command(command)
+	cmd := exec.Command(viper.GetString("DefaultCommand"))
 	cmd.Env = awsassume.EnvVars(profile, val)
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin

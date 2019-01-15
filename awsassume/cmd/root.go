@@ -23,12 +23,12 @@ import (
 	"github.com/spf13/viper"
 )
 
-var cfgFile string
-var command string
-var configPath string
-var credsPath string
-var profileName string
-var duration int
+var cfgFileFlag string
+var commandFlag string
+var configPathFlag string
+var credsPathFlag string
+var profileNameFlag string
+var durationFlag int
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -55,33 +55,29 @@ func Execute() {
 }
 
 func init() {
+	bindEnvironment()
 	cobra.OnInitialize(initConfig)
-	rootCmd.PersistentFlags().StringVar(
-		&cfgFile, "config", "",
-		"Config file (default is $HOME/.awsassume.yaml)")
-	rootCmd.PersistentFlags().StringVar(
-		&configPath, "aws-config-file", "~/.aws/config",
-		"Path to AWS CLI config file")
-	rootCmd.PersistentFlags().StringVar(
-		&credsPath, "aws-credentials-file", "~/.aws/credentials",
-		"Path to AWS shared credentials file")
-	rootCmd.PersistentFlags().StringVarP(
-		&command, "command", "c", os.Getenv("SHELL"),
-		"Command to use")
-	rootCmd.PersistentFlags().IntVarP(
-		&duration, "duration", "d", 15,
-		"How long credentials should be valid for")
-	rootCmd.PersistentFlags().StringVarP(
-		&profileName, "profile", "p", "default",
-		"Profile to assume (Required)")
+	rootCmd.PersistentFlags().StringVar(&cfgFileFlag, "config", "", "Config file (default is $HOME/.awsassume.yaml)")
+	rootCmd.PersistentFlags().StringVar(&configPathFlag, "aws-config-file", "~/.aws/config", "Path to AWS CLI config file")
+	rootCmd.PersistentFlags().StringVar(&credsPathFlag, "aws-credentials-file", "~/.aws/credentials", "Path to AWS shared credentials file")
+	rootCmd.PersistentFlags().StringVarP(&commandFlag, "command", "c", os.Getenv("SHELL"), "Command to use")
+	rootCmd.PersistentFlags().IntVarP(&durationFlag, "duration", "d", 15, "How long credentials should be valid for")
+	rootCmd.PersistentFlags().StringVarP(&profileNameFlag, "profile", "p", "default", "Profile to assume (Required)")
+	rootCmd.PersistentFlags().StringVarP(&profileNameFlag, "source-profile", "s", "default", "Source profile for credentials")
 	rootCmd.MarkPersistentFlagRequired("profile")
+	viper.BindPFlag("DefaultCommand", rootCmd.PersistentFlags().Lookup("command"))
+	viper.BindPFlag("DefaultDuration", rootCmd.PersistentFlags().Lookup("duration"))
+	viper.BindPFlag("DefaultSourceProfile", rootCmd.PersistentFlags().Lookup("source-profile"))
+	viper.BindPFlag("AWSSharedCredentialsFile", rootCmd.PersistentFlags().Lookup("aws-credentials-file"))
+	viper.BindPFlag("AWSConfigFile", rootCmd.PersistentFlags().Lookup("aws-config-file"))
+	viper.BindPFlag("AWSDefaultRegion", rootCmd.PersistentFlags().Lookup("region"))
 }
 
 // initConfig reads in config file and ENV variables if set.
 func initConfig() {
-	if cfgFile != "" {
+	if cfgFileFlag != "" {
 		// Use config file from the flag.
-		viper.SetConfigFile(cfgFile)
+		viper.SetConfigFile(cfgFileFlag)
 	} else {
 		// Find home directory.
 		home, err := homedir.Dir()
@@ -94,11 +90,19 @@ func initConfig() {
 		viper.AddConfigPath(home)
 		viper.SetConfigName(".awsassume")
 	}
-
 	viper.AutomaticEnv() // read in environment variables that match
 
 	// If a config file is found, read it in.
 	if err := viper.ReadInConfig(); err == nil {
 		fmt.Println("Using config file:", viper.ConfigFileUsed())
 	}
+}
+
+func bindEnvironment() {
+	viper.BindEnv("DefaultCommand", "AWSASSUME_COMMAND")
+	viper.BindEnv("DefaultDuration", "AWSASSUME_DURATION")
+	viper.BindEnv("AWSSharedCredentialsFile", "AWS_SHARED_CREDENTIALS_FILE")
+	viper.BindEnv("AWSConfigFile", "AWS_CONFIG_FILE")
+	viper.BindEnv("AWSDefaultRegion", "AWS_DEFAULT_REGION")
+	viper.BindEnv("AWSDefaultSourceProfile", "AWS_PROFILE")
 }
