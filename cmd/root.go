@@ -21,7 +21,6 @@ import (
 	homedir "github.com/mitchellh/go-homedir"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"github.com/tim-rodgers/awsassume/awsassume"
 )
 
 var cfgFileFlag string
@@ -29,7 +28,6 @@ var configPathFlag string
 var credsPathFlag string
 var profileNameFlag string
 var durationFlag int
-var credentials *awsassume.Value
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -90,20 +88,6 @@ func initConfig() {
 	// If a config file is found, read it in.
 	if err := viper.ReadInConfig(); err == nil {
 		fmt.Println("Using config file:", viper.ConfigFileUsed())
-	}
-	credentialProvider := awsassume.CredentialProvider{
-		ConfigFile:    viper.GetString("AWSConfigFile"),
-		CredsFile:     viper.GetString("AWSSharedCredentialsFile"),
-		ProfileName:   viper.GetString("ProfileName"),
-		SourceProfile: viper.GetString("SourceProfile"),
-		Duration:      viper.GetInt("SessionDuration"),
-		Region:        viper.GetString("Region"),
-	}
-	var err error
-	credentials, err = credentialProvider.Retrieve()
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
 	}
 }
 

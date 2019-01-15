@@ -50,13 +50,14 @@ func run(args []string) error {
 	if os.Getenv("AWSASSUME") != "" {
 		return errors.New("In an awsassume shell. Exit this before running further commands")
 	}
+	credentials := FetchCredentials()
 	var cmd *exec.Cmd
 	if len(args) == 1 {
 		cmd = exec.Command(args[0])
 	} else {
 		cmd = exec.Command(args[0], args[1:]...)
 	}
-	cmd.Env = EnvVars()
+	cmd.Env = EnvVars(credentials)
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
