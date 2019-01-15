@@ -13,7 +13,7 @@ func EnvVars() []string {
 		fmt.Sprintf("AWS_ACCESS_KEY_ID=%s", credentials.AccessKeyID),
 		fmt.Sprintf("AWS_SECRET_ACCESS_KEY=%s", credentials.SecretAccessKey),
 		fmt.Sprintf("AWS_SESSION_TOKEN=%s", credentials.SessionToken),
-		fmt.Sprintf("AWSASSUME_EXPIRY=%s", credentials.ExpiresAt),
+		fmt.Sprintf("AWSASSUME_EXPIRY=%s", credentials.SessionExpiration),
 	}
 	if credentials.Region != "" {
 		envVars = append([]string{fmt.Sprintf("AWS_DEFAULT_REGION=%s", credentials.Region)}, envVars...)

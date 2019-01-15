@@ -21,8 +21,9 @@ import (
 	"os/exec"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
+
+var shellCommand string
 
 // shellCmd represents the shell command
 var shellCmd = &cobra.Command{
@@ -40,13 +41,14 @@ and starts a new shell with the credentials set as env vars.`,
 
 func init() {
 	rootCmd.AddCommand(shellCmd)
+	rootCmd.Flags().StringVarP(&shellCommand, "shell-command", "s", os.Getenv("SHELL"), "shell command (default $SHELL)")
 }
 
 func shell() error {
 	if os.Getenv("AWSASSUME") != "" {
 		return errors.New("In an awsassume shell. Exit this before running further commands")
 	}
-	cmd := exec.Command(viper.GetString("ShellCommand"))
+	cmd := exec.Command(shellCommand)
 	cmd.Env = EnvVars()
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
