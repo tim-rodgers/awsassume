@@ -1,4 +1,4 @@
-// Copyright © 2019 Timothy Rodgers <rodgers.timothy2gmail.com>
+// Copyright © 2019 Timothy Rodgers <rodgers.timothy@gmail.com>
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -26,10 +26,10 @@ import (
 	homedir "github.com/mitchellh/go-homedir"
 )
 
-// An AwsProfile contains the properties for a profile
+// A Profile contains the properties for a profile
 // stored in ~/.aws/config
-type AwsProfile struct {
-	SourceProfile   string `ini:"aws_access_key_id"`
+type Profile struct {
+	SourceProfile   string `ini:"source_profile"`
 	RoleArn         string `ini:"role_arn"`
 	MfaSerial       string `ini:"mfa_serial"`
 	ExternalID      string `ini:"external_id"`
@@ -44,38 +44,30 @@ type Value struct {
 	SecretAccessKey string    `ini:"aws_secret_access_key"`
 	SessionToken    string    `ini:"aws_session_token"`
 	ExpiresAt       time.Time `ini:"awsassume_expires_at"`
-	Region          string    `ini:"region"`
-	RoleSessionName string    `ini:"role_session_name"`
 }
 
-// Get retrieves a set of credentials for the specified profile.
+// GetCredentials retrieves a set of credentials for the specified profile.
 // This might be credentials stored in the shared credentials file if valid, or
 // retrieved from the STS API
-func Get(awsConfigPath string, awsCredsPath string, profileName string, sourceProfile string) (*Value, error) {
-	if os.Getenv("AWS_CONFIG_FILE") != "" {
-		awsConfigPath = os.Getenv("AWS_CONFIG_FILE")
-	}
-	if os.Getenv("AWS_SHARED_CREDENTIALS_FILE") != "" {
-		awsCredsPath = os.Getenv("AWS_SHARED_CREDENTIALS_FILE")
-	}
+func GetCredentials(credsPath string, profileName string, profile *Profile, duration int) (*Value, error) {
 	var val = new(Value)
-	val = FetchCredentialsFromFile(awsCredsPath, profileName)
+	val = GetCredentialsFromFile(credsPath, profileName)
 	if val != nil {
 		fmt.Println("Using credentials from file")
 		return val, nil
 	}
 	fmt.Println("Retrieving credentials from AWS STS")
-	val, err := AssumeRole(awsConfigPath, profileName, sourceProfile, 60)
+	val, err := AssumeRole(profile, duration)
 	if err != nil {
 		return nil, fmt.Errorf("Error retrieving credentials: %s", err)
 	}
-	writeCredentials(awsCredsPath, profileName, val)
+	writeCredentials(credsPath, profileName, val)
 	return val, nil
 }
 
-// FetchCredentialsFromFile fetches a set of credentials from an AWS shared credentials file
-func FetchCredentialsFromFile(filePath string, profileName string) *Value {
-	credFile, err := loadFile(filePath)
+// GetCredentialsFromFile fetches a set of credentials from an AWS shared credentials file
+func GetCredentialsFromFile(filePath string, profileName string) *Value {
+	credFile, err := loadIniFile(filePath)
 	if err != nil {
 		fmt.Println("Failed to open credentials file: ", err)
 		os.Exit(1)
@@ -92,7 +84,7 @@ func FetchCredentialsFromFile(filePath string, profileName string) *Value {
 	}
 	duration := time.Until(val.ExpiresAt)
 	if duration.Minutes() < 1 {
-		fmt.Println("Existing credentials will expire soon")
+		fmt.Println("Stored credentials have expired")
 		return nil
 	}
 	return val
@@ -100,12 +92,10 @@ func FetchCredentialsFromFile(filePath string, profileName string) *Value {
 
 // AssumeRole attempts to assume the role of the specified profile
 // and return the temporary credentials
-func AssumeRole(awsConfigPath string, profileName string, source string, duration int) (*Value, error) {
-	profile, err := fetchProfile(awsConfigPath, profileName)
-	if err != nil {
-		return nil, err
-	}
-	awsSession := session.Must(session.NewSession())
+func AssumeRole(profile *Profile, duration int) (*Value, error) {
+	awsSession := session.Must(session.NewSessionWithOptions(session.Options{
+		Profile: profile.SourceProfile,
+	}))
 	creds := stscreds.NewCredentials(awsSession, profile.RoleArn, func(p *stscreds.AssumeRoleProvider) {
 		p.Duration = time.Duration(duration) * time.Minute
 		if profile.MfaSerial != "" {
@@ -127,31 +117,36 @@ func AssumeRole(awsConfigPath string, profileName string, source string, duratio
 		AccessKeyID:     awsVal.AccessKeyID,
 		SecretAccessKey: awsVal.SecretAccessKey,
 		SessionToken:    awsVal.SessionToken,
-		ExpiresAt:       time.Now().Local().Add(time.Duration(60) * time.Minute),
+		ExpiresAt:       time.Now().Local().Add(time.Duration(duration) * time.Minute),
 	}
 	return &val, nil
 }
 
-func fetchProfile(awsConfigPath string, profileName string) (*AwsProfile, error) {
-	path, _ := homedir.Expand(awsConfigPath)
-	cfg, err := ini.Load(path)
+// GetProfile retrieves data about the profile from the AWS CLI config file
+func GetProfile(filePath string, profileName string) (*Profile, error) {
+	cfg, err := loadIniFile(filePath)
 	if err != nil {
-		fmt.Printf("Failed to read config file: %v", err)
+		fmt.Println("Failed to open config file: ", err)
 		os.Exit(1)
 	}
-	sectionName := fmt.Sprintf("profile %s", profileName)
+	var sectionName string
+	if profileName == "default" {
+		sectionName = profileName
+	} else {
+		sectionName = fmt.Sprintf("profile %s", profileName)
+	}
 	sections := cfg.Sections()
-	awsProfile := new(AwsProfile)
+	profile := new(Profile)
 	for i := range sections {
 		if sections[i].Name() == sectionName {
-			sections[i].MapTo(awsProfile)
-			return awsProfile, nil
+			sections[i].MapTo(profile)
+			return profile, nil
 		}
 	}
 	return nil, errors.New("Profile not found in config file")
 }
 
-func loadFile(filePath string) (*ini.File, error) {
+func loadIniFile(filePath string) (*ini.File, error) {
 	path, _ := homedir.Expand(filePath)
 	cfg, err := ini.Load(path)
 	return cfg, err
@@ -159,7 +154,7 @@ func loadFile(filePath string) (*ini.File, error) {
 
 func writeCredentials(awsCredsPath string, profileName string, val *Value) {
 	path, _ := homedir.Expand(awsCredsPath)
-	credFile, err := loadFile(path)
+	credFile, err := loadIniFile(path)
 	if err != nil {
 		fmt.Printf("Could not open %s: %v\n", awsCredsPath, err)
 		return
@@ -173,4 +168,24 @@ func writeCredentials(awsCredsPath string, profileName string, val *Value) {
 	if err != nil {
 		fmt.Println("Error writing back credentials: ", err)
 	}
+}
+
+// EnvVars returns a slice containing the current environment variables and the variables
+// to set based on the assumed profile
+func EnvVars(profile *Profile, credentials *Value) []string {
+	envVars := []string{
+		fmt.Sprintf("AWSASSUME=1"),
+		fmt.Sprintf("AWS_ACCESS_KEY_ID=%s", credentials.AccessKeyID),
+		fmt.Sprintf("AWS_SECRET_ACCESS_KEY=%s", credentials.SecretAccessKey),
+		fmt.Sprintf("AWS_SESSION_TOKEN=%s", credentials.SessionToken),
+		fmt.Sprintf("AWSASSUME_EXPIRY=%s", credentials.ExpiresAt),
+	}
+	defaultregion := os.Getenv("AWS_DEFAULT_REGION")
+	if defaultregion != "" {
+		envVars = append(envVars, fmt.Sprintf("AWS_DEFAULT_REGION=%s", defaultregion))
+	} else if profile.Region != "" {
+		envVars = append(envVars, fmt.Sprintf("AWS_DEFAULT_REGION=%s", profile.Region))
+	}
+	envVars = append(os.Environ(), envVars...)
+	return envVars
 }
