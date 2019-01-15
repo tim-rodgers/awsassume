@@ -40,29 +40,30 @@ and starts a new shell with the credentials set as env vars.`,
 
 func init() {
 	rootCmd.AddCommand(shellCmd)
-	shellCmd.Flags().StringVarP(&profile, "profile", "p", "", "Profile to assume")
-	shellCmd.MarkFlagRequired("profile")
 }
 
 func shell() error {
 	if os.Getenv("AWSASSUME") != "" {
 		return errors.New("In an awsassume shell. Exit this before running further commands")
 	}
-	credentials, err := awsassume.Get(awsConfigPath, awsCredsPath, profile, sourceProfile)
+	if os.Getenv("AWS_CONFIG_FILE") != "" {
+		configPath = os.Getenv("AWS_CONFIG_FILE")
+	}
+	if os.Getenv("AWS_SHARED_CREDENTIALS_FILE") != "" {
+		credsPath = os.Getenv("AWS_SHARED_CREDENTIALS_FILE")
+	}
+	profile, err := awsassume.GetProfile(configPath, profileName)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-	shell := command
-	cmd := exec.Command(shell)
-	cmd.Env = append(os.Environ(),
-		fmt.Sprintf("AWSASSUME=1"),
-		fmt.Sprintf("AWS_ACCESS_KEY_ID=%s", credentials.AccessKeyID),
-		fmt.Sprintf("AWS_SECRET_ACCESS_KEY=%s", credentials.SecretAccessKey),
-		fmt.Sprintf("AWS_SESSION_TOKEN=%s", credentials.SessionToken),
-		fmt.Sprintf("AWS_DEFAULT_REGION=%s", credentials.Region),
-		fmt.Sprintf("AWSASSUME_EXPIRY=%s", credentials.ExpiresAt),
-	)
+	val, err := awsassume.GetCredentials(credsPath, profileName, profile, duration)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	cmd := exec.Command(command)
+	cmd.Env = awsassume.EnvVars(profile, val)
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout

@@ -25,9 +25,10 @@ import (
 
 var cfgFile string
 var command string
-var awsConfigPath string
-var awsCredsPath string
-var sourceProfile string
+var configPath string
+var credsPath string
+var profileName string
+var duration int
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -57,19 +58,23 @@ func init() {
 	cobra.OnInitialize(initConfig)
 	rootCmd.PersistentFlags().StringVar(
 		&cfgFile, "config", "",
-		"config file (default is $HOME/.awsassume.yaml)")
+		"Config file (default is $HOME/.awsassume.yaml)")
 	rootCmd.PersistentFlags().StringVar(
-		&sourceProfile, "source-profile", "default",
-		"Source profile to use credentials from when assuming another profile")
-	rootCmd.PersistentFlags().StringVar(
-		&awsConfigPath, "aws-config-file", "~/.aws/config",
+		&configPath, "aws-config-file", "~/.aws/config",
 		"Path to AWS CLI config file")
 	rootCmd.PersistentFlags().StringVar(
-		&awsCredsPath, "aws-credentials-file", "~/.aws/credentials",
+		&credsPath, "aws-credentials-file", "~/.aws/credentials",
 		"Path to AWS shared credentials file")
-	rootCmd.PersistentFlags().StringVar(
-		&command, "command", os.Getenv("SHELL"),
+	rootCmd.PersistentFlags().StringVarP(
+		&command, "command", "c", os.Getenv("SHELL"),
 		"Command to use")
+	rootCmd.PersistentFlags().IntVarP(
+		&duration, "duration", "d", 15,
+		"How long credentials should be valid for")
+	rootCmd.PersistentFlags().StringVarP(
+		&profileName, "profile", "p", "default",
+		"Profile to assume (Required)")
+	rootCmd.MarkPersistentFlagRequired("profile")
 }
 
 // initConfig reads in config file and ENV variables if set.

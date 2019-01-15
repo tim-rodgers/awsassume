@@ -26,15 +26,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// InputCommand contains data related to the command to run
-type InputCommand struct {
-	Profile string
-	Command string
-	Args    []string
-}
-
-var profile string
-
 // runCmd represents the run command
 var runCmd = &cobra.Command{
 	Use: "run",
@@ -48,12 +39,7 @@ var runCmd = &cobra.Command{
 	Long: `Assumes a role and uses the returned credentials
 to execute a single command`,
 	Run: func(cmd *cobra.Command, args []string) {
-		inputCmd := InputCommand{
-			Profile: profile,
-			Command: command,
-			Args:    args,
-		}
-		if err := run(inputCmd); err != nil {
+		if err := run(command, profileName, args); err != nil {
 			fmt.Println(err)
 			os.Exit(1)
 		}
@@ -62,31 +48,32 @@ to execute a single command`,
 
 func init() {
 	rootCmd.AddCommand(runCmd)
-	runCmd.Flags().StringVarP(&profile, "profile", "p", "", "Profile to assume")
-	runCmd.MarkFlagRequired("profile")
 }
 
-func run(inputCmd InputCommand) error {
+func run(command string, profilename string, args []string) error {
 	if os.Getenv("AWSASSUME") != "" {
 		return errors.New("In an awsassume shell. Exit this before running further commands")
 	}
-	credentials, err := awsassume.Get(awsConfigPath, awsCredsPath, profile, sourceProfile)
+	if os.Getenv("AWS_CONFIG_FILE") != "" {
+		configPath = os.Getenv("AWS_CONFIG_FILE")
+	}
+	if os.Getenv("AWS_SHARED_CREDENTIALS_FILE") != "" {
+		credsPath = os.Getenv("AWS_SHARED_CREDENTIALS_FILE")
+	}
+	profile, err := awsassume.GetProfile(configPath, profileName)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	val, err := awsassume.GetCredentials(credsPath, profileName, profile, duration)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 	// prepend `-c` switch to args passed to exec.Command
-	cmdArgs := []string{"-c", strings.Join(inputCmd.Args, " ")}
-	fmt.Println("args are: ", cmdArgs)
-	cmd := exec.Command(inputCmd.Command, cmdArgs...)
-	cmd.Env = append(os.Environ(),
-		fmt.Sprintf("AWSASSUME=1"),
-		fmt.Sprintf("AWS_ACCESS_KEY_ID=%s", credentials.AccessKeyID),
-		fmt.Sprintf("AWS_SECRET_ACCESS_KEY=%s", credentials.SecretAccessKey),
-		fmt.Sprintf("AWS_SESSION_TOKEN=%s", credentials.SessionToken),
-		fmt.Sprintf("AWS_DEFAULT_REGION=%s", credentials.Region),
-		fmt.Sprintf("AWSASSUME_EXPIRY=%s", credentials.ExpiresAt),
-	)
+	cmdArgs := []string{"-c", strings.Join(args, " ")}
+	cmd := exec.Command(command, cmdArgs...)
+	cmd.Env = awsassume.EnvVars(profile, val)
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
