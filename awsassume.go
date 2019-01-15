@@ -39,11 +39,11 @@ type Profile struct {
 
 // A Value is the credentials value for a particular set of credentials
 type Value struct {
-	AccessKeyID     string    `ini:"aws_access_key_id"`
-	SecretAccessKey string    `ini:"aws_secret_access_key"`
-	SessionToken    string    `ini:"aws_session_token"`
-	ExpiresAt       time.Time `ini:"awsassume_expires_at"`
-	Region          string    `ini:"awsassume_region"`
+	AccessKeyID       string    `ini:"aws_access_key_id"`
+	SecretAccessKey   string    `ini:"aws_secret_access_key"`
+	SessionToken      string    `ini:"aws_session_token"`
+	SessionExpiration time.Time `ini:"aws_session_expiration"`
+	Region            string    `ini:"awsassume_region"`
 }
 
 // CredentialProvider is used to retrieve credentials from file or STS API
@@ -92,7 +92,7 @@ func (c CredentialProvider) CredentialsFromFile() *Value {
 	if err != nil {
 		fmt.Println("Profile did not match expected format")
 	}
-	duration := time.Until(val.ExpiresAt)
+	duration := time.Until(val.SessionExpiration)
 	if duration.Minutes() < 1 {
 		fmt.Println("Stored credentials have expired")
 		return nil
@@ -142,7 +142,7 @@ func (c CredentialProvider) AssumeRole() (*Value, error) {
 	val.AccessKeyID = awsVal.AccessKeyID
 	val.SecretAccessKey = awsVal.SecretAccessKey
 	val.SessionToken = awsVal.SessionToken
-	val.ExpiresAt = time.Now().Local().Add(time.Duration(c.Duration) * time.Minute)
+	val.SessionExpiration = time.Now().Local().Add(time.Duration(c.Duration) * time.Minute)
 	if c.Region != "" {
 		val.Region = c.Region
 	} else if profile.Region != "" {
