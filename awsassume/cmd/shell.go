@@ -22,7 +22,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"github.com/tim-rodgers/awsassume"
 )
 
 // shellCmd represents the shell command
@@ -47,21 +46,8 @@ func shell() error {
 	if os.Getenv("AWSASSUME") != "" {
 		return errors.New("In an awsassume shell. Exit this before running further commands")
 	}
-	configFile := viper.GetString("AWSConfigFile")
-	credsFile := viper.GetString("AWSSharedCredentialsFile")
-	duration := viper.GetInt("DefaultDuration")
-	profile, err := awsassume.GetProfile(configFile, profileNameFlag)
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-	val, err := awsassume.GetCredentials(credsFile, profileNameFlag, profile, duration)
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-	cmd := exec.Command(viper.GetString("DefaultCommand"))
-	cmd.Env = awsassume.EnvVars(profile, val)
+	cmd := exec.Command(viper.GetString("ShellCommand"))
+	cmd.Env = EnvVars()
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout

@@ -19,12 +19,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
-
-	"github.com/tim-rodgers/awsassume"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 // runCmd represents the run command
@@ -40,7 +36,7 @@ var runCmd = &cobra.Command{
 	Long: `Assumes a role and uses the returned credentials
 to execute a single command`,
 	Run: func(cmd *cobra.Command, args []string) {
-		if err := run(viper.GetString("DefaultCommand"), args); err != nil {
+		if err := run(args); err != nil {
 			fmt.Println(err)
 			os.Exit(1)
 		}
@@ -51,32 +47,21 @@ func init() {
 	rootCmd.AddCommand(runCmd)
 }
 
-func run(command string, args []string) error {
+func run(args []string) error {
 	if os.Getenv("AWSASSUME") != "" {
 		return errors.New("In an awsassume shell. Exit this before running further commands")
 	}
-	configFile := viper.GetString("AWSConfigFile")
-	credsFile := viper.GetString("AWSSharedCredentialsFile")
-	duration := viper.GetInt("DefaultDuration")
-	profile, err := awsassume.GetProfile(configFile, profileNameFlag)
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+	var cmd *exec.Cmd
+	if len(args) == 1 {
+		cmd = exec.Command(args[0])
+	} else {
+		cmd = exec.Command(args[0], args[1:]...)
 	}
-
-	val, err := awsassume.GetCredentials(credsFile, profileNameFlag, profile, duration)
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-	// prepend `-c` switch to args passed to exec.Command
-	cmdArgs := []string{"-c", strings.Join(args, " ")}
-	cmd := exec.Command(command, cmdArgs...)
-	cmd.Env = awsassume.EnvVars(profile, val)
+	cmd.Env = EnvVars()
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
-	err = cmd.Run()
+	err := cmd.Run()
 	if err != nil {
 		fmt.Println("Error: ", err)
 	}
