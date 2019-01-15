@@ -32,9 +32,8 @@ var runCmd = &cobra.Command{
 		}
 		return nil
 	},
-	Short: "run a single command with assumed role",
-	Long: `Assumes a role and uses the returned credentials
-to execute a single command`,
+	Short: "Run a single command with assumed role",
+	Long:  `Assumes a role and uses the returned credentials to execute a single command`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := run(args); err != nil {
 			fmt.Println(err)

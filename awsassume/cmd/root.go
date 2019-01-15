@@ -35,13 +35,11 @@ var credentials *awsassume.Value
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "awsassume",
-	Short: "A brief description of your application",
-	Long: `A longer description that spans multiple lines and likely contains
-examples and usage of using your application. For example:
+	Short: "A tool to make assuming AWS roles easier",
+	Long: `awsassume allows you to run commands or start a new shell with temporary
+credentials sourced from the AWS STS API.
 
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+See https://github.com/tim-rodgers/awsassume for documentation`,
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
 	// Run: func(cmd *cobra.Command, args []string) {},
@@ -62,7 +60,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&cfgFileFlag, "config", "", "Config file (default is $HOME/.awsassume.yaml)")
 	rootCmd.PersistentFlags().StringVar(&configPathFlag, "aws-config-file", "~/.aws/config", "Path to AWS CLI config file")
 	rootCmd.PersistentFlags().StringVar(&credsPathFlag, "aws-credentials-file", "~/.aws/credentials", "Path to AWS shared credentials file")
-	rootCmd.PersistentFlags().IntVarP(&durationFlag, "duration", "d", 15, "How long credentials should be valid for")
+	rootCmd.PersistentFlags().IntVarP(&durationFlag, "duration", "d", 15, "How long in minutes credentials should be valid for")
 	rootCmd.PersistentFlags().StringVarP(&profileNameFlag, "profile", "p", "", "Profile to assume (Required)")
 	rootCmd.MarkPersistentFlagRequired("profile")
 	viper.BindPFlag("ProfileName", rootCmd.PersistentFlags().Lookup("profile"))

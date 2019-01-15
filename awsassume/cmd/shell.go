@@ -29,8 +29,7 @@ var shellCommand string
 var shellCmd = &cobra.Command{
 	Use:   "shell",
 	Short: "Start a shell session with an assumed role",
-	Long: `Fetches temporary credentials for a profile in ~/.aws/config
-and starts a new shell with the credentials set as env vars.`,
+	Long:  `Fetches temporary credentials and starts a new shell with the credentials set as env vars.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := shell(); err != nil {
 			fmt.Println(err)
