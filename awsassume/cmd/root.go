@@ -30,7 +30,6 @@ var configPathFlag string
 var credsPathFlag string
 var profileNameFlag string
 var durationFlag int
-
 var credentials *awsassume.Value
 
 // rootCmd represents the base command when called without any subcommands
