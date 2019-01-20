@@ -53,15 +53,6 @@ aws_access_key_id=AKIAIOSFODNN7EXAMPLE
 aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
 ```
 
-awsassume can also read from environment variables and a config file (defaults to `~./awsassume.yaml`). The following options can be set using the config file:
-
-```
-AWSConfigFile
-AWSSharedCredentialsFile
-SessionDuration
-Region
-```
-
 Several environment variables are also recognised:
 
 ```
@@ -76,5 +67,18 @@ When looking for configuration settings, order of precedence is:
 
 1. Environment variables
 1. Command line flags
-1. awsassume config files
 1. AWS CLI config file
+
+# Logging
+
+Supported values for the `--log-level` flag are:
+
+- trace
+- debug
+- info
+- warn
+- error
+- fatal
+- panic
+
+Only messages of the severity selected or above will be displayed
