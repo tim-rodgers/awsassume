@@ -15,20 +15,34 @@
 package awsassume
 
 import (
-	"errors"
 	"fmt"
-	"os"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/credentials/stscreds"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/go-ini/ini"
 	homedir "github.com/mitchellh/go-homedir"
+	log "github.com/sirupsen/logrus"
 )
 
-// A Profile contains the properties for a profile
-// stored in ~/.aws/config
-type Profile struct {
+// ConfigProvider is an interface to retrieve config and credentials stored
+// locally
+type ConfigProvider interface {
+	GetProfile(profileName string) (*ProfileConfig, error)
+	GetCredentials(profileName string) (*CredentialsValue, error)
+	SetCredentials(profileName string, credentials *CredentialsValue) error
+}
+
+// CredentialsProvider is an interface to retrieve temporary credentials for a profile
+// in the AWS config file
+type CredentialsProvider interface {
+	AssumeRole(options AssumeRoleOptions) (*CredentialsValue, error)
+}
+
+// ProfileConfig contains the properties for a profile stored in the config file
+type ProfileConfig struct {
 	SourceProfile   string `ini:"source_profile"`
 	RoleArn         string `ini:"role_arn"`
 	MfaSerial       string `ini:"mfa_serial"`
@@ -37,164 +51,207 @@ type Profile struct {
 	RoleSessionName string `ini:"role_session_name"`
 }
 
-// A Value is the credentials value for a particular set of credentials
-type Value struct {
+// CredentialsValue represents the temporary credentials returned by AWS or read
+// from the credentials file
+type CredentialsValue struct {
 	AccessKeyID       string    `ini:"aws_access_key_id"`
 	SecretAccessKey   string    `ini:"aws_secret_access_key"`
 	SessionToken      string    `ini:"aws_session_token"`
 	SessionExpiration time.Time `ini:"aws_session_expiration"`
-	Region            string    `ini:"awsassume_region"`
 }
 
-// CredentialProvider is used to retrieve credentials from file or STS API
-type CredentialProvider struct {
-	ConfigFile    string
-	CredsFile     string
-	ProfileName   string
-	SourceProfile string
-	Duration      int
-	Region        string
+// AssumeRoleOptions holds the configurations values to be passed to the AssumeRole
+// function
+type AssumeRoleOptions struct {
+	ProfileName     string
+	SourceProfile   string
+	RoleARN         string
+	MFASerial       string
+	ExternalID      string
+	RoleSessionName string
+	SessionDuration time.Duration
 }
 
-// Retrieve retrieves a set of credentials for the specified profile.
-// This might be credentials stored in the shared credentials file if valid, or
-// retrieved from the STS API
-func (c CredentialProvider) Retrieve() (*Value, error) {
-	var val = new(Value)
-	val = c.CredentialsFromFile()
-	if val != nil {
-		fmt.Println("Using credentials from file")
-		return val, nil
-	}
-	fmt.Println("Retrieving credentials from AWS STS")
-	val, err := c.AssumeRole()
-	if err != nil {
-		return nil, fmt.Errorf("Error retrieving credentials: %s", err)
-	}
-	writeCredentials(c.CredsFile, c.ProfileName, val)
-	return val, nil
+// AWSConfigProvider Fetches profile and credential data from aws configuration files
+type AWSConfigProvider struct {
+	configPath         string
+	credentialsPath    string
+	awsConfigFile      *ini.File
+	awsCredentialsFile *ini.File
 }
 
-// CredentialsFromFile fetches a set of credentials from an AWS shared credentials file
-func (c CredentialProvider) CredentialsFromFile() *Value {
-	credFile, err := loadIniFile(c.CredsFile)
-	if err != nil {
-		fmt.Println("Failed to open credentials file: ", err)
-		os.Exit(1)
-	}
-	creds, err := credFile.GetSection(c.ProfileName)
-	if err != nil {
-		fmt.Println("Profile not found in shared credential file")
-		return nil
-	}
-	val := new(Value)
-	err = creds.MapTo(val)
-	if err != nil {
-		fmt.Println("Profile did not match expected format")
-	}
-	duration := time.Until(val.SessionExpiration)
-	if duration.Minutes() < 1 {
-		fmt.Println("Stored credentials have expired")
-		return nil
-	}
-	return val
-}
-
-// AssumeRole attempts to assume the role of the specified profile
-// and return the temporary credentials
-func (c CredentialProvider) AssumeRole() (*Value, error) {
-	profile, err := c.GetProfile()
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-	var source string
-
-	if c.SourceProfile != "" {
-		source = c.SourceProfile
-	} else if profile.SourceProfile != "" {
-		source = profile.SourceProfile
+// GetProfile retrieves a profile from the config file if it exists, or an error
+// if no profile is found
+func (c *AWSConfigProvider) GetProfile(profileName string) (*ProfileConfig, error) {
+	log.Debugf("Looking up profile %s in config file", profileName)
+	var sectionName string
+	if profileName == "default" {
+		sectionName = profileName
 	} else {
-		fmt.Println("Error: No source profile provided")
-		os.Exit(1)
+		sectionName = fmt.Sprintf("profile %s", profileName)
 	}
+	if section := c.awsConfigFile.Section(sectionName); section != nil {
+		log.Debugf("Profile %s found", profileName)
+		var profile = &ProfileConfig{}
+		section.MapTo(profile)
+		return profile, nil
+	}
+	log.Debugf("Profile %s not found", profileName)
+	return nil, fmt.Errorf("Error: profile name %s not found", profileName)
+}
+
+// GetCredentials returns credentials for a profile in the credentials file if it exists and
+// is not expired, or nil otherwise
+func (c *AWSConfigProvider) GetCredentials(profileName string) (*CredentialsValue, error) {
+	log.Debugf("Looking up existing credentials for %s", profileName)
+	if section := c.awsCredentialsFile.Section(profileName); section != nil {
+		log.Debug("Found credentials")
+		var credentials = &CredentialsValue{}
+		if err := section.MapTo(credentials); err != nil {
+			log.WithError(err)
+			return nil, err
+		}
+		return credentials, nil
+	}
+	return nil, nil
+}
+
+// NewAWSConfigProvider returns a pointer to a new instance of the AWSConfigProvider
+func NewAWSConfigProvider(configPath string, credentialsPath string) (*AWSConfigProvider, error) {
+	log.Debug("Creating AWSConfigProvider")
+	configPath, err := homedir.Expand(configPath)
+	if err != nil {
+		log.WithError(err)
+		return nil, err
+	}
+	credentialsPath, err = homedir.Expand(credentialsPath)
+	if err != nil {
+		log.WithError(err)
+		return nil, err
+	}
+	configFile, err := ini.Load(configPath)
+	if err != nil {
+		log.WithError(err)
+		return nil, err
+	}
+	credsFile, err := ini.Load(credentialsPath)
+	if err != nil {
+		log.WithError(err)
+		return nil, err
+	}
+	var configProvider = new(AWSConfigProvider)
+	configProvider.configPath = configPath
+	configProvider.credentialsPath = credentialsPath
+	configProvider.awsConfigFile = configFile
+	configProvider.awsCredentialsFile = credsFile
+	log.Debugf("AWSConfigProvider created with config file (%s) and creds file (%s)", configPath, credentialsPath)
+	return configProvider, nil
+}
+
+// SetCredentials stores the provided credentials in the credentials file
+func (c *AWSConfigProvider) SetCredentials(profileName string, credentials *CredentialsValue) error {
+	section := c.awsCredentialsFile.Section(profileName)
+	if err := section.ReflectFrom(credentials); err != nil {
+		return err
+	}
+	return c.awsCredentialsFile.SaveTo(c.credentialsPath)
+}
+
+// STSCredentialsProvider fetches credentials from the AWS STS Service
+type STSCredentialsProvider struct{}
+
+// AssumeRole calls sts:AssumeRole and returns temporary credentials
+func (s *STSCredentialsProvider) AssumeRole(options AssumeRoleOptions) (*CredentialsValue, error) {
 	awsSession := session.Must(session.NewSessionWithOptions(session.Options{
-		Profile: source,
+		Profile: options.SourceProfile,
 	}))
-	creds := stscreds.NewCredentials(awsSession, profile.RoleArn, func(p *stscreds.AssumeRoleProvider) {
-		p.Duration = time.Duration(c.Duration) * time.Minute
-		if profile.MfaSerial != "" {
-			p.SerialNumber = &profile.MfaSerial
+	creds := stscreds.NewCredentials(awsSession, options.RoleARN, func(p *stscreds.AssumeRoleProvider) {
+		p.Duration = time.Duration(options.SessionDuration) * time.Minute
+		if options.MFASerial != "" {
+			p.SerialNumber = &options.MFASerial
 			p.TokenProvider = stscreds.StdinTokenProvider
 		}
-		if profile.ExternalID != "" {
-			p.ExternalID = &profile.ExternalID
+		if options.ExternalID != "" {
+			p.ExternalID = &options.ExternalID
 		}
-		if profile.RoleSessionName != "" {
-			p.RoleSessionName = profile.RoleSessionName
+		if options.RoleSessionName != "" {
+			p.RoleSessionName = options.RoleSessionName
 		}
 	})
-	awsVal, err := creds.Get()
+	val, err := creds.Get()
+	if err != nil {
+		if awsErr, ok := err.(awserr.Error); ok {
+			if awsErr == credentials.ErrNoValidProvidersFoundInChain {
+				log.Errorf("No valid credentials found for source profile %s", options.SourceProfile)
+			}
+		} else {
+			log.Error(err)
+		}
+		return nil, err
+	}
+	credsValue := &CredentialsValue{
+		AccessKeyID:       val.AccessKeyID,
+		SecretAccessKey:   val.SecretAccessKey,
+		SessionToken:      val.SessionToken,
+		SessionExpiration: time.Now().Local().Add(time.Duration(options.SessionDuration) * time.Minute),
+	}
+	return credsValue, nil
+}
+
+// CredentialsClient manages locally stored data and fetching fresh credentials
+type CredentialsClient struct {
+	ConfigProvider      ConfigProvider
+	CredentialsProvider CredentialsProvider
+}
+
+// NewCredentialsClient creates a new credentials client that can assume role and fetch temporary credentials
+func NewCredentialsClient(configPath string, credentialsPath string) (*CredentialsClient, error) {
+	log.Debug("Creating CredentialsClient")
+	configprovider, err := NewAWSConfigProvider(configPath, credentialsPath)
 	if err != nil {
 		return nil, err
 	}
-	val := new(Value)
-	val.AccessKeyID = awsVal.AccessKeyID
-	val.SecretAccessKey = awsVal.SecretAccessKey
-	val.SessionToken = awsVal.SessionToken
-	val.SessionExpiration = time.Now().Local().Add(time.Duration(c.Duration) * time.Minute)
-	if c.Region != "" {
-		val.Region = c.Region
-	} else if profile.Region != "" {
-		val.Region = profile.Region
-	}
-	return val, nil
+	var credentialsClient = new(CredentialsClient)
+	credentialsClient.ConfigProvider = configprovider
+	credentialsClient.CredentialsProvider = new(STSCredentialsProvider)
+	log.Debug("CredentialsClient created")
+	return credentialsClient, nil
 }
 
-// GetProfile retrieves data about the profile from the AWS CLI config file
-func (c CredentialProvider) GetProfile() (*Profile, error) {
-	cfg, err := loadIniFile(c.ConfigFile)
+// GetCredentials retrieves credentials from the credentials file. If they are not valid
+// or not present, fresh credentials are fetched from the STS service
+func (c *CredentialsClient) GetCredentials(options AssumeRoleOptions) (*CredentialsValue, error) {
+	credentials, err := c.ConfigProvider.GetCredentials(options.ProfileName)
 	if err != nil {
-		fmt.Println("Failed to open config file: ", err)
-		os.Exit(1)
+		return nil, err
 	}
-	var sectionName string
-	if c.ProfileName == "default" {
-		sectionName = c.ProfileName
-	} else {
-		sectionName = fmt.Sprintf("profile %s", c.ProfileName)
+	if isValid(credentials) {
+		return credentials, nil
 	}
-	sections := cfg.Sections()
-	profile := new(Profile)
-	for i := range sections {
-		if sections[i].Name() == sectionName {
-			sections[i].MapTo(profile)
-			return profile, nil
-		}
+	log.Debug("Credentials expired or not present")
+	if credentials, err = c.CredentialsProvider.AssumeRole(options); err == nil {
+		fmt.Println(credentials)
+		log.Debug("Got credentials from STS")
+		c.ConfigProvider.SetCredentials(options.ProfileName, credentials)
+		return credentials, nil
 	}
-	return nil, errors.New("Profile not found in config file")
+	log.WithError(err)
+	return nil, err
 }
 
-func loadIniFile(filePath string) (*ini.File, error) {
-	path, _ := homedir.Expand(filePath)
-	cfg, err := ini.Load(path)
-	return cfg, err
+func isValid(credentials *CredentialsValue) bool {
+	if credentials == nil {
+		log.Debug("No credentials present")
+		return false
+	}
+	if isExpired(credentials) {
+		log.Debug("Credentials are expired")
+		return false
+	}
+	return true
 }
 
-func writeCredentials(awsCredsPath string, profileName string, val *Value) {
-	path, _ := homedir.Expand(awsCredsPath)
-	credFile, err := loadIniFile(path)
-	if err != nil {
-		fmt.Printf("Could not open %s: %v\n", awsCredsPath, err)
-		return
-	}
-	creds := credFile.Section(profileName)
-	err = creds.ReflectFrom(val)
-	if err != nil {
-		fmt.Println("Error reflecting credentials: ", err)
-	}
-	err = credFile.SaveTo(path)
-	if err != nil {
-		fmt.Println("Error writing back credentials: ", err)
-	}
+func isExpired(credentials *CredentialsValue) bool {
+	duration := time.Until(credentials.SessionExpiration)
+	return duration <= 0
 }
