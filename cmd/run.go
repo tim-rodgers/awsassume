@@ -16,28 +16,22 @@ package cmd
 
 import (
 	"errors"
-	"fmt"
 	"os"
-	"os/exec"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 // runCmd represents the run command
 var runCmd = &cobra.Command{
-	Use: "run",
-	Args: func(cmd *cobra.Command, args []string) error {
-		if len(args) < 1 {
-			return errors.New("must provide a command to execute")
-		}
-		return nil
-	},
+	Use:   "run",
+	Args:  cobra.MinimumNArgs(1),
 	Short: "Run a single command with assumed role",
 	Long:  `Assumes a role and uses the returned credentials to execute a single command`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := run(args); err != nil {
-			fmt.Println(err)
-			os.Exit(1)
+			log.Error(err)
 		}
 	},
 }
@@ -45,25 +39,13 @@ var runCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(runCmd)
 }
-
 func run(args []string) error {
+	if viper.GetString("Profile") == "" {
+		rootCmd.Help()
+		return errors.New("profile must be provided")
+	}
 	if os.Getenv("AWSASSUME") != "" {
 		return errors.New("In an awsassume shell. Exit this before running further commands")
 	}
-	credentials := FetchCredentials()
-	var cmd *exec.Cmd
-	if len(args) == 1 {
-		cmd = exec.Command(args[0])
-	} else {
-		cmd = exec.Command(args[0], args[1:]...)
-	}
-	cmd.Env = EnvVars(credentials)
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	err := cmd.Run()
-	if err != nil {
-		fmt.Println("Error: ", err)
-	}
-	return nil
+	return ExecuteCommand(args)
 }

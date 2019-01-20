@@ -19,15 +19,17 @@ import (
 	"os"
 
 	homedir "github.com/mitchellh/go-homedir"
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
 var cfgFileFlag string
+var profileNameFlag string
 var configPathFlag string
 var credsPathFlag string
-var profileNameFlag string
 var durationFlag int
+var loggingLevelFlag string
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -45,22 +47,19 @@ See https://github.com/tim-rodgers/awsassume for documentation`,
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
+	rootCmd.Execute()
 }
 
 func init() {
 	bindEnvironment()
 	cobra.OnInitialize(initConfig)
 	rootCmd.PersistentFlags().StringVar(&cfgFileFlag, "config", "", "Config file (default is $HOME/.awsassume.yaml)")
+	rootCmd.PersistentFlags().StringVarP(&profileNameFlag, "profile", "p", "", "profile to be assumed (required)")
+	viper.BindPFlag("Profile", rootCmd.PersistentFlags().Lookup("profile"))
 	rootCmd.PersistentFlags().StringVar(&configPathFlag, "aws-config-file", "~/.aws/config", "Path to AWS CLI config file")
 	rootCmd.PersistentFlags().StringVar(&credsPathFlag, "aws-credentials-file", "~/.aws/credentials", "Path to AWS shared credentials file")
 	rootCmd.PersistentFlags().IntVarP(&durationFlag, "duration", "d", 15, "How long in minutes credentials should be valid for")
-	rootCmd.PersistentFlags().StringVarP(&profileNameFlag, "profile", "p", "", "Profile to assume (Required)")
-	rootCmd.MarkPersistentFlagRequired("profile")
-	viper.BindPFlag("ProfileName", rootCmd.PersistentFlags().Lookup("profile"))
+	rootCmd.PersistentFlags().StringVarP(&loggingLevelFlag, "log-level", "l", "info", "logging level")
 	viper.BindPFlag("SessionDuration", rootCmd.PersistentFlags().Lookup("duration"))
 	viper.BindPFlag("AWSSharedCredentialsFile", rootCmd.PersistentFlags().Lookup("aws-credentials-file"))
 	viper.BindPFlag("AWSConfigFile", rootCmd.PersistentFlags().Lookup("aws-config-file"))
@@ -89,6 +88,8 @@ func initConfig() {
 	if err := viper.ReadInConfig(); err == nil {
 		fmt.Println("Using config file:", viper.ConfigFileUsed())
 	}
+	level, _ := log.ParseLevel(loggingLevelFlag)
+	log.SetLevel(level)
 }
 
 func bindEnvironment() {

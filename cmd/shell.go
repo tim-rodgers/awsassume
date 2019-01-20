@@ -16,23 +16,22 @@ package cmd
 
 import (
 	"errors"
-	"fmt"
 	"os"
-	"os/exec"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
-
-var shellCommand string
 
 // shellCmd represents the shell command
 var shellCmd = &cobra.Command{
 	Use:   "shell",
+	Args:  cobra.NoArgs,
 	Short: "Start a shell session with an assumed role",
 	Long:  `Fetches temporary credentials and starts a new shell with the credentials set as env vars.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := shell(); err != nil {
-			fmt.Println(err)
+			log.WithError(err)
 			os.Exit(1)
 		}
 	},
@@ -40,19 +39,16 @@ var shellCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(shellCmd)
-	rootCmd.Flags().StringVarP(&shellCommand, "shell-command", "s", os.Getenv("SHELL"), "shell command (default $SHELL)")
 }
 
 func shell() error {
+	if viper.GetString("Profile") == "" {
+		rootCmd.Help()
+		return errors.New("profile must be provided")
+	}
 	if os.Getenv("AWSASSUME") != "" {
 		return errors.New("In an awsassume shell. Exit this before running further commands")
 	}
-	credentials := FetchCredentials()
-	cmd := exec.Command(shellCommand)
-	cmd.Env = EnvVars(credentials)
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Run()
-	return nil
+	command := []string{os.Getenv("SHELL")}
+	return ExecuteCommand(command)
 }
