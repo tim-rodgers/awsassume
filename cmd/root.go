@@ -60,7 +60,8 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&credsPathFlag, "aws-credentials-file", "~/.aws/credentials", "Path to AWS shared credentials file")
 	rootCmd.PersistentFlags().IntVarP(&durationFlag, "duration", "d", 15, "How long in minutes credentials should be valid for")
 	rootCmd.PersistentFlags().StringVarP(&loggingLevelFlag, "log-level", "l", "info", "logging level")
-	viper.BindPFlag("SessionDuration", rootCmd.PersistentFlags().Lookup("duration"))
+	rootCmd.PersistentFlags().
+		viper.BindPFlag("SessionDuration", rootCmd.PersistentFlags().Lookup("duration"))
 	viper.BindPFlag("AWSSharedCredentialsFile", rootCmd.PersistentFlags().Lookup("aws-credentials-file"))
 	viper.BindPFlag("AWSConfigFile", rootCmd.PersistentFlags().Lookup("aws-config-file"))
 }
@@ -85,9 +86,9 @@ func initConfig() {
 	viper.AutomaticEnv() // read in environment variables that match
 
 	// If a config file is found, read it in.
-	if err := viper.ReadInConfig(); err == nil {
-		fmt.Println("Using config file:", viper.ConfigFileUsed())
-	}
+	// if err := viper.ReadInConfig(); err == nil {
+	// 	fmt.Println("Using config file:", viper.ConfigFileUsed())
+	// }
 	level, _ := log.ParseLevel(loggingLevelFlag)
 	log.SetLevel(level)
 }
