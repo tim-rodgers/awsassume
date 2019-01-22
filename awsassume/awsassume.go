@@ -228,14 +228,12 @@ func (c *CredentialsClient) GetCredentials(options AssumeRoleOptions) (*Credenti
 	if isValid(credentials) {
 		return credentials, nil
 	}
-	log.Debug("Credentials expired or not present")
 	if credentials, err = c.CredentialsProvider.AssumeRole(options); err == nil {
-		fmt.Println(credentials)
 		log.Debug("Got credentials from STS")
 		c.ConfigProvider.SetCredentials(options.ProfileName, credentials)
 		return credentials, nil
 	}
-	log.WithError(err)
+	log.Error(err)
 	return nil, err
 }
 
