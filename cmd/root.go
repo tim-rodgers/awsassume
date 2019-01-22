@@ -53,15 +53,13 @@ func Execute() {
 func init() {
 	bindEnvironment()
 	cobra.OnInitialize(initConfig)
-	rootCmd.PersistentFlags().StringVar(&cfgFileFlag, "config", "", "Config file (default is $HOME/.awsassume.yaml)")
 	rootCmd.PersistentFlags().StringVarP(&profileNameFlag, "profile", "p", "", "profile to be assumed (required)")
 	viper.BindPFlag("Profile", rootCmd.PersistentFlags().Lookup("profile"))
 	rootCmd.PersistentFlags().StringVar(&configPathFlag, "aws-config-file", "~/.aws/config", "Path to AWS CLI config file")
 	rootCmd.PersistentFlags().StringVar(&credsPathFlag, "aws-credentials-file", "~/.aws/credentials", "Path to AWS shared credentials file")
 	rootCmd.PersistentFlags().IntVarP(&durationFlag, "duration", "d", 15, "How long in minutes credentials should be valid for")
 	rootCmd.PersistentFlags().StringVarP(&loggingLevelFlag, "log-level", "l", "info", "logging level")
-	rootCmd.PersistentFlags().
-		viper.BindPFlag("SessionDuration", rootCmd.PersistentFlags().Lookup("duration"))
+	viper.BindPFlag("SessionDuration", rootCmd.PersistentFlags().Lookup("duration"))
 	viper.BindPFlag("AWSSharedCredentialsFile", rootCmd.PersistentFlags().Lookup("aws-credentials-file"))
 	viper.BindPFlag("AWSConfigFile", rootCmd.PersistentFlags().Lookup("aws-config-file"))
 }
