@@ -21,7 +21,7 @@ func EnvVars(credentials *awsassume.CredentialsValue, region string) (envVars []
 		fmt.Sprintf("AWS_SECRET_ACCESS_KEY=%s", credentials.SecretAccessKey),
 		fmt.Sprintf("AWS_SESSION_TOKEN=%s", credentials.SessionToken),
 		fmt.Sprintf("SESSION_EXPIRATION=%s", credentials.SessionExpiration),
-		fmt.Sprintf("PS1=%s", viper.GetString("Profile")+"> "),
+		fmt.Sprintf("PS1=%s", "\\[\\e[31m\\]" + viper.GetString("Profile")+"\\[\\e[m\\]"+" \\[\\e[31m\\]\\w # \\[\\e[m\\]"),
 	)
 	if cRegion := viper.Get("Region"); cRegion != nil {
 		envVars = append([]string{fmt.Sprintf("AWS_DEFAULT_REGION=%s", cRegion)}, envVars...)
